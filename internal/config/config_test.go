@@ -1,0 +1,176 @@
+package config
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+)
+
+func TestDefault(t *testing.T) {
+	cfg := Default()
+
+	if cfg.Storage.DataDir != "./data" {
+		t.Errorf("DataDir: got %q, want ./data", cfg.Storage.DataDir)
+	}
+	if cfg.Storage.SegmentMaxRecords != 1_000_000 {
+		t.Errorf("SegmentMaxRecords: got %d, want 1000000", cfg.Storage.SegmentMaxRecords)
+	}
+	if cfg.Ingest.BatchSize != 1000 {
+		t.Errorf("BatchSize: got %d, want 1000", cfg.Ingest.BatchSize)
+	}
+	if cfg.Ingest.QueueSize != 100_000 {
+		t.Errorf("QueueSize: got %d, want 100000", cfg.Ingest.QueueSize)
+	}
+	if cfg.API.HTTPAddr != ":8080" {
+		t.Errorf("HTTPAddr: got %q, want :8080", cfg.API.HTTPAddr)
+	}
+
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("default config should be valid: %v", err)
+	}
+}
+
+func TestLoad_FileNotFound(t *testing.T) {
+	cfg, err := Load("/nonexistent/config.yaml")
+	if err != nil {
+		t.Fatalf("Load should return default on missing file: %v", err)
+	}
+	if cfg.Storage.DataDir != "./data" {
+		t.Errorf("expected default DataDir, got %q", cfg.Storage.DataDir)
+	}
+}
+
+func TestLoad_ValidYAML(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	yaml := `
+storage:
+  data_dir: /tmp/amber-test
+  segment_max_records: 500000
+ingest:
+  batch_size: 2000
+  batch_timeout: 50ms
+  queue_size: 5000
+api:
+  http_addr: ":9090"
+  grpc_addr: ":4318"
+log:
+  level: debug
+  format: json
+retention:
+  max_age: 168h
+  max_segments: 10
+`
+	if err := os.WriteFile(path, []byte(yaml), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.Storage.DataDir != "/tmp/amber-test" {
+		t.Errorf("DataDir: got %q", cfg.Storage.DataDir)
+	}
+	if cfg.Storage.SegmentMaxRecords != 500000 {
+		t.Errorf("SegmentMaxRecords: got %d", cfg.Storage.SegmentMaxRecords)
+	}
+	if cfg.Ingest.BatchSize != 2000 {
+		t.Errorf("BatchSize: got %d", cfg.Ingest.BatchSize)
+	}
+	if cfg.Ingest.BatchTimeout != 50*time.Millisecond {
+		t.Errorf("BatchTimeout: got %v", cfg.Ingest.BatchTimeout)
+	}
+	if cfg.API.GRPCAddr != ":4318" {
+		t.Errorf("GRPCAddr: got %q", cfg.API.GRPCAddr)
+	}
+	if cfg.Retention.MaxAge != 168*time.Hour {
+		t.Errorf("MaxAge: got %v", cfg.Retention.MaxAge)
+	}
+	if cfg.Retention.MaxSegments != 10 {
+		t.Errorf("MaxSegments: got %d", cfg.Retention.MaxSegments)
+	}
+}
+
+func TestLoad_InvalidYAML(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	if err := os.WriteFile(path, []byte("{{invalid"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for invalid YAML")
+	}
+}
+
+func TestValidate_MissingDataDir(t *testing.T) {
+	cfg := Default()
+	cfg.Storage.DataDir = ""
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected error for empty data_dir")
+	}
+}
+
+func TestValidate_InvalidBatchSize(t *testing.T) {
+	cfg := Default()
+	cfg.Ingest.BatchSize = 0
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected error for batch_size=0")
+	}
+
+	cfg.Ingest.BatchSize = -1
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected error for negative batch_size")
+	}
+}
+
+func TestValidate_InvalidQueueSize(t *testing.T) {
+	cfg := Default()
+	cfg.Ingest.QueueSize = 0
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected error for queue_size=0")
+	}
+}
+
+func TestValidate_MissingHTTPAddr(t *testing.T) {
+	cfg := Default()
+	cfg.API.HTTPAddr = ""
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected error for empty http_addr")
+	}
+}
+
+func TestLoad_PartialOverride(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	yaml := `
+storage:
+  data_dir: /custom/path
+`
+	if err := os.WriteFile(path, []byte(yaml), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.Storage.DataDir != "/custom/path" {
+		t.Errorf("DataDir should be overridden: got %q", cfg.Storage.DataDir)
+	}
+	// Defaults should remain for non-overridden fields
+	if cfg.Ingest.BatchSize != 1000 {
+		t.Errorf("BatchSize should keep default: got %d", cfg.Ingest.BatchSize)
+	}
+	if cfg.API.HTTPAddr != ":8080" {
+		t.Errorf("HTTPAddr should keep default: got %q", cfg.API.HTTPAddr)
+	}
+}

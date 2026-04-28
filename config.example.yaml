@@ -1,0 +1,25 @@
+storage:
+  data_dir: ./data
+  segment_max_records: 1000000
+  segment_max_bytes: 536870912
+
+ingest:
+  batch_size: 1000
+  batch_timeout: 100ms
+  queue_size: 10000
+
+api:
+  http_addr: ":8080"
+  grpc_addr: ":4317"   # OTLP/gRPC (стандартный порт OTel), оставить пустым чтобы отключить
+  read_timeout: 30s
+  write_timeout: 30s
+
+log:
+  level: info
+  format: text
+
+retention:
+  max_age: 0s       # максимальный возраст сегмента (например 168h = 7 дней), 0s = отключено
+  max_bytes: 0      # максимальный суммарный размер на диске в байтах, 0 = отключено
+  max_segments: 0   # максимальное количество сегментов, 0 = отключено
+  interval: 1h      # интервал проверки

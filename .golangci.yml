@@ -1,0 +1,88 @@
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+  go: "1.25"
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - bodyclose
+    - misspell
+    - revive
+    - unconvert
+    - unparam
+    - gocritic
+    - gosec
+    - prealloc
+    - copyloopvar
+
+  settings:
+    revive:
+      rules:
+        - name: exported
+          disabled: true
+    gosec:
+      excludes:
+        - G104  # errcheck handles this
+        - G115  # intentional in binary encode/decode
+        - G304  # file paths derived from internal layout
+        - G301  # data dir perms — db process owns dir
+        - G302  # data file perms — db process owns files
+    gocritic:
+      disabled-checks:
+        - ifElseChain
+        - singleCaseSwitch
+    errcheck:
+      exclude-functions:
+        - (io.Closer).Close
+        - (*os.File).Close
+        - (net/http.ResponseWriter).Write
+        - encoding/json.Encoder.Encode
+        - (*encoding/json.Encoder).Encode
+        - github.com/goccy/go-json.Encoder.Encode
+        - (*github.com/goccy/go-json.Encoder).Encode
+
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck
+          - gosec
+          - unparam
+      - path: benchmarks/
+        linters:
+          - errcheck
+          - gosec
+      - path: cmd/loadgen/
+        linters:
+          - gosec
+          - prealloc
+          - staticcheck
+      - path: cmd/amber/main\.go
+        text: "G108"
+        linters:
+          - gosec
+      - path: internal/model/id\.go
+        text: "G404"
+        linters:
+          - gosec
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/hnlbs/amber
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
