@@ -24,6 +24,13 @@ import (
 )
 
 func main() {
+	if err := run(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	cfgPath := "config.yaml"
 	if len(os.Args) > 1 {
 		cfgPath = os.Args[1]
@@ -31,8 +38,7 @@ func main() {
 
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to load config: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to load config: %w", err)
 	}
 
 	log := setupLogger(cfg.Log)
@@ -54,15 +60,13 @@ func main() {
 
 	logManager, err := storage.OpenSegmentManager(logDir, rotationPolicy)
 	if err != nil {
-		log.Error("failed to open log segment manager", "err", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to open log segment manager: %w", err)
 	}
 	defer func() { _ = logManager.Close() }()
 
 	spanManager, err := storage.OpenSegmentManager(spanDir, rotationPolicy)
 	if err != nil {
-		log.Error("failed to open span segment manager", "err", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to open span segment manager: %w", err)
 	}
 	defer func() { _ = spanManager.Close() }()
 
@@ -70,14 +74,12 @@ func main() {
 
 	logSparse, err := index.LoadSparseIndex(logDir)
 	if err != nil {
-		log.Error("failed to load log sparse index", "err", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to load log sparse index: %w", err)
 	}
 
 	spanSparse, err := index.LoadSparseIndex(spanDir)
 	if err != nil {
-		log.Error("failed to load span sparse index", "err", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to load span sparse index: %w", err)
 	}
 
 	exec := query.NewExecutorWithCache(
@@ -175,6 +177,7 @@ func main() {
 	}
 
 	log.Info("amber stopped")
+	return nil
 }
 
 func setupLogger(cfg config.LogConfig) *slog.Logger {

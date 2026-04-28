@@ -45,7 +45,7 @@ func TestEntryIDToUint64_Deterministic(t *testing.T) {
 
 func TestEntryIDToUint64_Unique(t *testing.T) {
 	seen := make(map[uint64]struct{}, 1000)
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		id := MustNewEntryID()
 		u := EntryIDToUint64(id)
 		if _, exists := seen[u]; exists {

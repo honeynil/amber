@@ -15,9 +15,9 @@
   <img src="https://img.shields.io/badge/status-alpha-orange" alt="Status">
 </p>
 
-Append-only storage for logs and traces. One binary, one directory, HTTP + gRPC API.
-
-Think "SQLite for observability" — no JVM, no cluster coordination, no external dependencies.
+Append-only storage for logs and traces. 
+One binary, one directory, HTTP + gRPC API.
+Think "SQLite for observability".
 
 ## Features
 
@@ -166,7 +166,6 @@ See [config.example.yaml](config.example.yaml) for all options. Key settings:
 - **VictoriaLogs** excluded: bulk ingest via `/insert/jsonline` silently dropped records (storage = 8 KB after 100M ingest). Single-record inserts work; bulk persistence bug not investigated. Results would be misleading
 - **ClickHouse FTS** uses `position(body, ?)` instead of `hasToken` because `hasToken` treats `_` as a token separator, rejecting UUIDs. This bypasses the `tokenbf_v1` index — R3/R4 numbers reflect a full scan
 - **Loki R3** had 11 errors (timeouts on 100M full-text scan)
-- **Benchmark suite**: [codeberg.org/HoneyLabs/obs-bench](https://codeberg.org/HoneyLabs/obs-bench) — all scenarios, configs, and raw results are public
 
 </details>
 
