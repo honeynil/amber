@@ -3,6 +3,7 @@ package ingest
 import (
 	"bytes"
 	"context"
+	"errors"
 	"log/slog"
 	"sync"
 	"time"
@@ -16,6 +17,8 @@ type item struct {
 	log  *model.LogEntry
 	span *model.SpanEntry
 }
+
+var ErrQueueFull = errors.New("ingest queue full")
 
 type Batcher struct {
 	logManager   *storage.SegmentManager
@@ -64,26 +67,34 @@ func (b *Batcher) Wait() {
 }
 
 func (b *Batcher) SendLog(entry model.LogEntry) error {
-	b.queue <- item{log: &entry}
-	return nil
-}
-
-func (b *Batcher) SendSpan(span model.SpanEntry) error {
-	b.queue <- item{span: &span}
-	return nil
-}
-
-func (b *Batcher) TrySendLog(entry model.LogEntry) bool {
 	select {
 	case b.queue <- item{log: &entry}:
-		return true
+		return nil
 	default:
 		b.log.Warn("ingest queue full, dropping log entry",
 			"entry_id", entry.ID.String(),
 			"service", entry.Service,
 		)
-		return false
+		return ErrQueueFull
 	}
+}
+
+func (b *Batcher) SendSpan(span model.SpanEntry) error {
+	select {
+	case b.queue <- item{span: &span}:
+		return nil
+	default:
+		b.log.Warn("ingest queue full, dropping span",
+			"entry_id", span.ID.String(),
+			"service", span.Service,
+			"operation", span.Operation,
+		)
+		return ErrQueueFull
+	}
+}
+
+func (b *Batcher) TrySendLog(entry model.LogEntry) bool {
+	return b.SendLog(entry) == nil
 }
 
 var bufPool = sync.Pool{

@@ -82,6 +82,9 @@ func TestCleaner_MaxSegments(t *testing.T) {
 	if alogCount > 3 {
 		t.Errorf("expected at most 3 .alog files on disk, got %d", alogCount)
 	}
+	if after := len(manager.Segments()); after != 2 {
+		t.Fatalf("expected manager metadata to keep 2 sealed segments after cleanup, got %d", after)
+	}
 }
 
 func TestCleaner_MaxAge(t *testing.T) {

@@ -326,6 +326,23 @@ func (sm *SegmentManager) Segments() []SegmentMeta {
 	return result
 }
 
+func (sm *SegmentManager) RemoveSegment(id uint32) error {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	for i, seg := range sm.meta.Segments {
+		if seg.ID != id {
+			continue
+		}
+		if !seg.Sealed {
+			return fmt.Errorf("segmgr: cannot remove active segment %d", id)
+		}
+		sm.meta.Segments = append(sm.meta.Segments[:i], sm.meta.Segments[i+1:]...)
+		return saveMeta(sm.dir, sm.meta)
+	}
+	return nil
+}
+
 func (sm *SegmentManager) Flush() error {
 	sm.mu.RLock()
 	active := sm.active

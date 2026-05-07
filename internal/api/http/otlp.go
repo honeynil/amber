@@ -1,6 +1,7 @@
 package http
 
 import (
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -64,6 +65,9 @@ func (h *OTLPHandler) handleLogs(w http.ResponseWriter, r *http.Request) {
 				}
 				if err := h.batcher.SendLog(entry); err != nil {
 					rejected++
+					if errors.Is(err, ingest.ErrQueueFull) {
+						h.log.Warn("otlp log dropped due to full queue", "service", service)
+					}
 					continue
 				}
 				accepted++
@@ -102,6 +106,9 @@ func (h *OTLPHandler) handleTraces(w http.ResponseWriter, r *http.Request) {
 				}
 				if err := h.batcher.SendSpan(span); err != nil {
 					rejected++
+					if errors.Is(err, ingest.ErrQueueFull) {
+						h.log.Warn("otlp span dropped due to full queue", "service", service)
+					}
 					continue
 				}
 				accepted++

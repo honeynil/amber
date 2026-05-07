@@ -2,11 +2,19 @@ package http
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/hnlbs/amber/internal/index"
+	"github.com/hnlbs/amber/internal/ingest"
+	"github.com/hnlbs/amber/internal/model"
+	"github.com/hnlbs/amber/internal/storage"
 )
 
 func TestAPIKeyMiddleware_EmptyKey(t *testing.T) {
@@ -210,5 +218,72 @@ func TestIngestHandler_InvalidJSON(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("expected 400 for invalid JSON, got %d", rec.Code)
+	}
+}
+
+func TestIngestHandler_Returns503WhenQueueIsFull(t *testing.T) {
+	dir := t.TempDir()
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	logManager, err := storage.OpenSegmentManager(dir+"/logs", storage.DefaultRotationPolicy)
+	if err != nil {
+		t.Fatalf("OpenSegmentManager logs: %v", err)
+	}
+	defer logManager.Close()
+
+	spanManager, err := storage.OpenSegmentManager(dir+"/spans", storage.DefaultRotationPolicy)
+	if err != nil {
+		t.Fatalf("OpenSegmentManager spans: %v", err)
+	}
+	defer spanManager.Close()
+
+	batcher := ingest.NewBatcher(logManager, spanManager, index.NewSparseIndex(), index.NewSparseIndex(), nil, 10, time.Second, 1, log)
+	h := NewIngestHandler(batcher, log)
+
+	req := httptest.NewRequest("POST", "/api/v1/logs", strings.NewReader(`[
+		{"level":"INFO","service":"a","body":"one"},
+		{"level":"INFO","service":"b","body":"two"}
+	]`))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 when queue is full, got %d", rec.Code)
+	}
+
+	var body map[string]int
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body["accepted"] != 1 || body["rejected"] != 1 {
+		t.Fatalf("unexpected counts: %v", body)
+	}
+}
+
+func TestBatcher_SendLogReturnsQueueFull(t *testing.T) {
+	dir := t.TempDir()
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	logManager, err := storage.OpenSegmentManager(dir+"/logs", storage.DefaultRotationPolicy)
+	if err != nil {
+		t.Fatalf("OpenSegmentManager logs: %v", err)
+	}
+	defer logManager.Close()
+
+	spanManager, err := storage.OpenSegmentManager(dir+"/spans", storage.DefaultRotationPolicy)
+	if err != nil {
+		t.Fatalf("OpenSegmentManager spans: %v", err)
+	}
+	defer spanManager.Close()
+
+	batcher := ingest.NewBatcher(logManager, spanManager, index.NewSparseIndex(), index.NewSparseIndex(), nil, 10, time.Second, 1, log)
+	entry1, _ := model.NewLogEntry(model.LevelInfo, "a", "", "one")
+	entry2, _ := model.NewLogEntry(model.LevelInfo, "b", "", "two")
+
+	if err := batcher.SendLog(entry1); err != nil {
+		t.Fatalf("first SendLog() error = %v", err)
+	}
+	if err := batcher.SendLog(entry2); !errors.Is(err, ingest.ErrQueueFull) {
+		t.Fatalf("second SendLog() error = %v, want ErrQueueFull", err)
 	}
 }

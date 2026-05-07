@@ -116,6 +116,10 @@ func (c *Cleaner) deleteSegment(seg storage.SegmentMeta) error {
 	_ = os.Remove(segPath + ".fidx")
 	_ = os.Remove(segPath + ".filt")
 
+	if err := c.manager.RemoveSegment(seg.ID); err != nil {
+		return err
+	}
+
 	c.sparse.Remove(seg.ID)
 	if err := c.sparse.Save(c.dataDir); err != nil {
 		c.log.Warn("sparse index save failed", "err", err)

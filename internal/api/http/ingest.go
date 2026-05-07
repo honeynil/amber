@@ -41,6 +41,7 @@ func (h *IngestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var accepted, rejected int
 	for _, item := range req {
 		level, err := model.LevelFromString(item.Level)
 		if err != nil {
@@ -55,6 +56,7 @@ func (h *IngestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		entry, err := model.NewLogEntry(level, item.Service, item.Host, item.Body, attrs...)
 		if err != nil {
 			h.log.Error("create log entry", "err", err)
+			rejected++
 			continue
 		}
 
@@ -73,8 +75,22 @@ func (h *IngestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		if err := h.batcher.SendLog(entry); err != nil {
 			h.log.Warn("send log failed", "err", err)
+			rejected++
+			continue
 		}
+		accepted++
 	}
 
-	w.WriteHeader(http.StatusAccepted)
+	if rejected > 0 {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"accepted": accepted,
+			"rejected": rejected,
+		})
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"accepted": accepted,
+		"rejected": rejected,
+	})
 }
