@@ -23,6 +23,7 @@ type item struct {
 var (
 	ErrQueueFull   = errors.New("ingest queue full")
 	ErrBreakerOpen = errors.New("ingest circuit breaker open")
+	ErrCardinality = errors.New("ingest cardinality limit exceeded")
 )
 
 type Batcher struct {
@@ -38,7 +39,10 @@ type Batcher struct {
 	wg               sync.WaitGroup
 	breakerThreshold uint64
 	consecFailures   atomic.Uint64
+	guard            *CardinalityGuard
 }
+
+func (b *Batcher) SetCardinalityGuard(g *CardinalityGuard) { b.guard = g }
 
 func NewBatcher(
 	logManager *storage.SegmentManager,
@@ -88,6 +92,10 @@ func (b *Batcher) SendLog(entry model.LogEntry) error {
 		metrics.IngestDropped.WithLabelValues("log", "breaker_open").Inc()
 		return ErrBreakerOpen
 	}
+	if reason := b.guard.Check(entry.Service, entry.Attrs); reason != "" {
+		metrics.IngestDropped.WithLabelValues("log", reason).Inc()
+		return ErrCardinality
+	}
 	select {
 	case b.queue <- item{log: &entry}:
 		return nil
@@ -105,6 +113,10 @@ func (b *Batcher) SendSpan(span model.SpanEntry) error {
 	if b.IsBreakerOpen() {
 		metrics.IngestDropped.WithLabelValues("span", "breaker_open").Inc()
 		return ErrBreakerOpen
+	}
+	if reason := b.guard.Check(span.Service, span.Attrs); reason != "" {
+		metrics.IngestDropped.WithLabelValues("span", reason).Inc()
+		return ErrCardinality
 	}
 	select {
 	case b.queue <- item{span: &span}:

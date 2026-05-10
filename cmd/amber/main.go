@@ -110,6 +110,11 @@ func run() error {
 		cfg.Ingest.BreakerThreshold,
 		log,
 	)
+	batcher.SetCardinalityGuard(ingest.NewCardinalityGuard(
+		cfg.Ingest.MaxAttrsPerEntry,
+		cfg.Ingest.MaxAttrValueBytes,
+		cfg.Ingest.MaxAttrKeysPerService,
+	))
 	batcher.Start(ctx)
 
 	metrics.RegisterGaugeFunc("amber_ingest_queue_length", "Items currently buffered in the ingest queue.", func() float64 {
