@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"sync/atomic"
 
 	"github.com/hnlbs/amber/internal/index"
 	"github.com/hnlbs/amber/internal/ingest"
@@ -19,6 +20,8 @@ func RegisterRoutes(
 	logManager *storage.SegmentManager,
 	logSparse *index.SparseIndex,
 	apiKey string,
+	maxRequestBytes int64,
+	ready *atomic.Bool,
 	log *slog.Logger,
 ) {
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
@@ -26,19 +29,24 @@ func RegisterRoutes(
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	})
 
+	mux.Handle("GET /readyz", ReadyHandler(ready))
+
 	auth := func(h http.Handler) http.Handler {
 		return APIKeyMiddleware(apiKey, h)
 	}
+	authPost := func(h http.Handler) http.Handler {
+		return APIKeyMiddleware(apiKey, MaxBytesMiddleware(maxRequestBytes, h))
+	}
 
-	mux.Handle("POST /api/v1/logs", auth(NewIngestHandler(batcher, log)))
+	mux.Handle("POST /api/v1/logs", authPost(NewIngestHandler(batcher, log)))
 	mux.Handle("GET /api/v1/logs", auth(NewQueryHandler(exec, log)))
 	mux.Handle("GET /api/v1/traces/", auth(NewTraceHandler(exec, log)))
 	mux.Handle("GET /api/v1/traces", auth(NewTracesHandler(exec, log)))
 	mux.Handle("GET /api/v1/services", auth(NewServicesHandler(exec, log)))
 
 	otlpH := NewOTLPHandler(batcher, log)
-	mux.Handle("POST /v1/logs", auth(otlpH))
-	mux.Handle("POST /v1/traces", auth(otlpH))
+	mux.Handle("POST /v1/logs", authPost(otlpH))
+	mux.Handle("POST /v1/traces", authPost(otlpH))
 
 	adminH := NewAdminHandler(logManager, logSparse, log)
 	mux.Handle("GET /api/v1/admin/stats", auth(http.HandlerFunc(adminH.Stats)))

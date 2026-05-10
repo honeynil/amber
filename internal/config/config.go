@@ -49,6 +49,7 @@ type APIConfig struct {
 	ReadHeaderTimeout time.Duration `yaml:"read_header_timeout"`
 	WriteTimeout      time.Duration `yaml:"write_timeout"`
 	IdleTimeout       time.Duration `yaml:"idle_timeout"`
+	MaxRequestBytes   int64         `yaml:"max_request_bytes"`
 	APIKey            string        `yaml:"api_key"`
 	GRPCAddr          string        `yaml:"grpc_addr"`
 }
@@ -77,6 +78,7 @@ func Default() *Config {
 			ReadHeaderTimeout: 5 * time.Second,
 			WriteTimeout:      30 * time.Second,
 			IdleTimeout:       120 * time.Second,
+			MaxRequestBytes:   32 << 20,
 		},
 		Debug: DebugConfig{
 			PprofAddr: "localhost:6060",

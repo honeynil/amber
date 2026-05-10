@@ -7,7 +7,28 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
+
+func ReadyHandler(ready *atomic.Bool) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if ready != nil && !ready.Load() {
+			writeError(w, http.StatusServiceUnavailable, "indexes loading")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
+	})
+}
+
+func MaxBytesMiddleware(limit int64, next http.Handler) http.Handler {
+	if limit <= 0 {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, limit)
+		next.ServeHTTP(w, r)
+	})
+}
 
 func APIKeyMiddleware(apiKey string, next http.Handler) http.Handler {
 	if apiKey == "" {

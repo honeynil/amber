@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -63,7 +64,9 @@ func setupAPIHarness(t *testing.T) *apiHarness {
 	batcher.Start(ctx)
 
 	mux := http.NewServeMux()
-	RegisterRoutes(mux, batcher, exec, logManager, logSparse, "secret", log)
+	var ready atomic.Bool
+	ready.Store(true)
+	RegisterRoutes(mux, batcher, exec, logManager, logSparse, "secret", 32<<20, &ready, log)
 
 	t.Cleanup(func() {
 		cancel()

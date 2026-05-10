@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -89,8 +90,10 @@ func run() error {
 
 	bootstrap.SetupSealCallbacks(exec, logManager, spanManager, logDir, spanDir, log)
 
+	var ready atomic.Bool
 	go func() {
 		bootstrap.LoadSealedIndexes(exec, logManager, spanManager, logDir, spanDir, log)
+		ready.Store(true)
 		log.Info("sealed indexes loaded")
 	}()
 
@@ -127,7 +130,7 @@ func run() error {
 	}
 
 	if cfg.API.GRPCAddr != "" {
-		grpcServer := ambergrpc.NewServer(batcher, log)
+		grpcServer := ambergrpc.NewServer(batcher, int(cfg.API.MaxRequestBytes), log)
 		go func() {
 			log.Info("grpc server listening", "addr", cfg.API.GRPCAddr)
 			if err := ambergrpc.ListenAndServe(grpcServer, cfg.API.GRPCAddr); err != nil {
@@ -171,7 +174,7 @@ func run() error {
 	}
 
 	mux := http.NewServeMux()
-	amberhttp.RegisterRoutes(mux, batcher, exec, logManager, logSparse, cfg.API.APIKey, log)
+	amberhttp.RegisterRoutes(mux, batcher, exec, logManager, logSparse, cfg.API.APIKey, cfg.API.MaxRequestBytes, &ready, log)
 
 	httpServer := &http.Server{
 		Addr:              cfg.API.HTTPAddr,

@@ -16,8 +16,12 @@ type sender interface {
 	SendSpan(model.SpanEntry) error
 }
 
-func NewServer(batcher sender, log *slog.Logger) *grpc.Server {
-	s := grpc.NewServer()
+func NewServer(batcher sender, maxRecvBytes int, log *slog.Logger) *grpc.Server {
+	var opts []grpc.ServerOption
+	if maxRecvBytes > 0 {
+		opts = append(opts, grpc.MaxRecvMsgSize(maxRecvBytes))
+	}
+	s := grpc.NewServer(opts...)
 	collectorlogs.RegisterLogsServiceServer(s, &logsServer{batcher: batcher, log: log})
 	collectortrace.RegisterTraceServiceServer(s, &tracesServer{batcher: batcher, log: log})
 	return s
