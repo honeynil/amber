@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/hnlbs/amber/internal/index"
+	"github.com/hnlbs/amber/internal/metrics"
 	"github.com/hnlbs/amber/internal/model"
 	"github.com/hnlbs/amber/internal/storage"
 )
@@ -71,6 +72,7 @@ func (b *Batcher) SendLog(entry model.LogEntry) error {
 	case b.queue <- item{log: &entry}:
 		return nil
 	default:
+		metrics.IngestDropped.WithLabelValues("log", "queue_full").Inc()
 		b.log.Warn("ingest queue full, dropping log entry",
 			"entry_id", entry.ID.String(),
 			"service", entry.Service,
@@ -84,6 +86,7 @@ func (b *Batcher) SendSpan(span model.SpanEntry) error {
 	case b.queue <- item{span: &span}:
 		return nil
 	default:
+		metrics.IngestDropped.WithLabelValues("span", "queue_full").Inc()
 		b.log.Warn("ingest queue full, dropping span",
 			"entry_id", span.ID.String(),
 			"service", span.Service,
@@ -92,6 +95,8 @@ func (b *Batcher) SendSpan(span model.SpanEntry) error {
 		return ErrQueueFull
 	}
 }
+
+func (b *Batcher) QueueLen() int { return len(b.queue) }
 
 func (b *Batcher) TrySendLog(entry model.LogEntry) bool {
 	return b.SendLog(entry) == nil
@@ -171,6 +176,11 @@ func (b *Batcher) processBatch(_ context.Context, batch []item) {
 		}
 
 		if writeErr != nil {
+			kind := "log"
+			if it.span != nil {
+				kind = "span"
+			}
+			metrics.IngestDropped.WithLabelValues(kind, "serialize_error").Inc()
 			b.log.Error("serialize entry", "err", writeErr)
 			bufPool.Put(buf)
 			continue
@@ -202,8 +212,10 @@ func (b *Batcher) processBatch(_ context.Context, batch []item) {
 
 	if len(logItems) > 0 {
 		if err := b.logManager.WriteBatch(logItems); err != nil {
+			metrics.IngestDropped.WithLabelValues("log", "write_failed").Add(float64(len(logItems)))
 			b.log.Error("log batch write failed", "err", err, "count", len(logItems))
 		} else {
+			metrics.IngestAccepted.WithLabelValues("log").Add(float64(len(logItems)))
 			updateSparseFromBatch(b.logSparse, b.logManager, logItems)
 			if b.indexer != nil && len(logEntries) > 0 {
 				b.indexer.IndexLogEntries(logEntries)
@@ -216,8 +228,10 @@ func (b *Batcher) processBatch(_ context.Context, batch []item) {
 
 	if len(spanItems) > 0 {
 		if err := b.spanManager.WriteBatch(spanItems); err != nil {
+			metrics.IngestDropped.WithLabelValues("span", "write_failed").Add(float64(len(spanItems)))
 			b.log.Error("span batch write failed", "err", err, "count", len(spanItems))
 		} else {
+			metrics.IngestAccepted.WithLabelValues("span").Add(float64(len(spanItems)))
 			updateSparseFromBatch(b.spanSparse, b.spanManager, spanItems)
 			if b.indexer != nil && len(spanEntries) > 0 {
 				b.indexer.IndexSpanEntries(spanEntries)

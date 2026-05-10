@@ -408,6 +408,19 @@ func (sm *SegmentManager) Segments() []SegmentMeta {
 	return result
 }
 
+func (sm *SegmentManager) WALCorruptRecords() uint64 {
+	if sm.wal == nil {
+		return 0
+	}
+	return sm.wal.CorruptRecords()
+}
+
+func (sm *SegmentManager) SegmentCount() int {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	return len(sm.meta.Segments)
+}
+
 func (sm *SegmentManager) RemoveSegment(id uint32) error {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()

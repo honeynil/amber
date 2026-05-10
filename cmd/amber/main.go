@@ -19,6 +19,7 @@ import (
 	"github.com/hnlbs/amber/internal/config"
 	"github.com/hnlbs/amber/internal/index"
 	"github.com/hnlbs/amber/internal/ingest"
+	"github.com/hnlbs/amber/internal/metrics"
 	"github.com/hnlbs/amber/internal/query"
 	"github.com/hnlbs/amber/internal/retention"
 	"github.com/hnlbs/amber/internal/storage"
@@ -110,6 +111,16 @@ func run() error {
 	)
 	batcher.Start(ctx)
 
+	metrics.RegisterGaugeFunc("amber_ingest_queue_length", "Items currently buffered in the ingest queue.", func() float64 {
+		return float64(batcher.QueueLen())
+	})
+	metrics.RegisterGaugeFunc("amber_segments_total", "Number of segments tracked by a manager.", func() float64 {
+		return float64(logManager.SegmentCount() + spanManager.SegmentCount())
+	})
+	metrics.RegisterCounterFunc("amber_wal_corrupt_records_total", "Malformed WAL records observed during replay.", func() float64 {
+		return float64(logManager.WALCorruptRecords() + spanManager.WALCorruptRecords())
+	})
+
 	if cfg.Retention.MaxAge > 0 || cfg.Retention.MaxBytes > 0 || cfg.Retention.MaxSegments > 0 {
 		policy := retention.Policy{
 			MaxAge:        cfg.Retention.MaxAge,
@@ -174,6 +185,7 @@ func run() error {
 	}
 
 	mux := http.NewServeMux()
+	mux.Handle("GET /metrics", metrics.Handler())
 	amberhttp.RegisterRoutes(mux, batcher, exec, logManager, logSparse, cfg.API.APIKey, cfg.API.MaxRequestBytes, &ready, log)
 
 	httpServer := &http.Server{
