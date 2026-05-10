@@ -64,30 +64,61 @@ type LogConfig struct {
 	Format string `yaml:"format"`
 }
 
+// Default config tuned for a single mid-tier node and modest log volume.
+// Each value is a starting point — every comment below records WHY this
+// number, not just what it is.
 func Default() *Config {
 	return &Config{
 		Storage: StorageConfig{
-			DataDir:           "./data",
+			DataDir: "./data",
+			// 1M records ≈ 10–30 min at 1k/s; bounds index build time and
+			// blast radius of a corrupted segment.
 			SegmentMaxRecords: 1_000_000,
-			SegmentMaxBytes:   512 << 20,
+			// 512 MiB: above S3 multipart minimum (5 MiB), well under the
+			// 5 GiB cliff, keeps full-segment scan time tractable.
+			SegmentMaxBytes: 512 << 20,
 		},
 		Ingest: IngestConfig{
-			BatchSize:             1000,
-			BatchTimeout:          100 * time.Millisecond,
-			QueueSize:             100_000,
-			ShutdownTimeout:       30 * time.Second,
-			BreakerThreshold:      10,
-			MaxAttrsPerEntry:      64,
-			MaxAttrValueBytes:     4096,
+			// 1000 amortizes WAL/segment syscalls and zstd framing without
+			// stalling ingest on a single batch flush.
+			BatchSize: 1000,
+			// 100 ms is the tail-latency ceiling at low ingestion rates
+			// where BatchSize is never reached before timeout.
+			BatchTimeout: 100 * time.Millisecond,
+			// 100k items ≈ 100 batches of 1000 — absorbs short bursts;
+			// past this we surface backpressure via ErrQueueFull metric.
+			QueueSize: 100_000,
+			// 30 s drain budget on shutdown; longer hangs are FS pathology
+			// and we'd rather lose tail items than block kubectl rollout.
+			ShutdownTimeout: 30 * time.Second,
+			// 10 consecutive WriteBatch failures opens the breaker. Low
+			// enough to react before queue fills, high enough to ride out
+			// transient blips (single fsync stall, brief disk full).
+			BreakerThreshold: 10,
+			// 64 attrs/entry — covers normal OTLP resource+log attrs with
+			// headroom; anything over is a label-bomb.
+			MaxAttrsPerEntry: 64,
+			// 4 KiB per value — typical log line, plenty for stack frames,
+			// stops megabyte payloads from bloating bitmap indexes.
+			MaxAttrValueBytes: 4096,
+			// 1024 unique attr keys per service is generous enough that no
+			// healthy app trips it; request_id-style key bombs pass it fast.
 			MaxAttrKeysPerService: 1024,
 		},
 		API: APIConfig{
-			HTTPAddr:          ":8080",
-			ReadTimeout:       30 * time.Second,
+			HTTPAddr: ":8080",
+			// 30 s for body upload — OTLP batches can be MB-scale on
+			// slow links.
+			ReadTimeout: 30 * time.Second,
+			// 5 s for headers — tight enough to kill slow-loris,
+			// loose enough for intercontinental TLS handshakes.
 			ReadHeaderTimeout: 5 * time.Second,
-			WriteTimeout:      30 * time.Second,
-			IdleTimeout:       120 * time.Second,
-			MaxRequestBytes:   32 << 20,
+			// 30 s for response — query results can be large.
+			WriteTimeout: 30 * time.Second,
+			// 120 s keeps pooled connections from wedging idle workers
+			// while still letting browsers / scrapers reuse sockets.
+			IdleTimeout:     120 * time.Second,
+			MaxRequestBytes: 32 << 20,
 		},
 		Debug: DebugConfig{
 			PprofAddr: "localhost:6060",

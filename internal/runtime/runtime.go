@@ -48,22 +48,52 @@ type CardinalityOptions struct {
 	MaxAttrKeysPerService int
 }
 
+// Defaults are sized for a single mid-tier node ingesting modest log volume.
+// Operators with very different workloads should override explicitly; the
+// numbers are starting points, not optima.
+const (
+	// 1M records per segment ≈ ~10-30 min of typical app logs at 1k/s. Keeps
+	// per-segment index build time under a few seconds and cuts compaction
+	// blast radius if a single segment goes bad.
+	defaultSegmentMaxRecords uint64 = 1_000_000
+
+	// 512 MiB per segment is a balance between (a) S3 multipart upload
+	// efficiency (we're well above the 5 MiB minimum and below the cost
+	// cliff at 5 GiB) and (b) wall-clock time to scan one segment for a
+	// query that misses the index.
+	defaultSegmentMaxBytes int64 = 512 << 20
+
+	// Batch of 1000 amortizes WAL/segment write syscalls and zstd block
+	// framing without making any single batch large enough to stall ingest
+	// while it flushes.
+	defaultBatchSize = 1000
+
+	// 100 ms is the batch ceiling: bound on tail latency from queue entry to
+	// disk for low-rate workloads where BatchSize is never reached.
+	defaultBatchTimeout = 100 * time.Millisecond
+
+	// 10k queue items ≈ 10 batches of 1000. Anything past this is a sign of
+	// disk backpressure or a runaway producer; SendLog/SendSpan return
+	// ErrQueueFull and the metric counter ticks.
+	defaultQueueSize = 10_000
+)
+
 func (o Options) withDefaults() Options {
 	out := o
 	if out.Storage.SegmentMaxRecords == 0 {
-		out.Storage.SegmentMaxRecords = 1_000_000
+		out.Storage.SegmentMaxRecords = defaultSegmentMaxRecords
 	}
 	if out.Storage.SegmentMaxBytes == 0 {
-		out.Storage.SegmentMaxBytes = 512 << 20
+		out.Storage.SegmentMaxBytes = defaultSegmentMaxBytes
 	}
 	if out.Ingest.BatchSize == 0 {
-		out.Ingest.BatchSize = 1000
+		out.Ingest.BatchSize = defaultBatchSize
 	}
 	if out.Ingest.BatchTimeout == 0 {
-		out.Ingest.BatchTimeout = 100 * time.Millisecond
+		out.Ingest.BatchTimeout = defaultBatchTimeout
 	}
 	if out.Ingest.QueueSize == 0 {
-		out.Ingest.QueueSize = 10_000
+		out.Ingest.QueueSize = defaultQueueSize
 	}
 	if out.Logger == nil {
 		out.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
