@@ -8,21 +8,15 @@ import (
 	"net/http/pprof"
 	"os"
 	"os/signal"
-	"path/filepath"
-	"sync/atomic"
 	"syscall"
 	"time"
 
 	ambergrpc "github.com/hnlbs/amber/internal/api/grpc"
 	amberhttp "github.com/hnlbs/amber/internal/api/http"
-	"github.com/hnlbs/amber/internal/bootstrap"
 	"github.com/hnlbs/amber/internal/config"
-	"github.com/hnlbs/amber/internal/index"
-	"github.com/hnlbs/amber/internal/ingest"
 	"github.com/hnlbs/amber/internal/metrics"
-	"github.com/hnlbs/amber/internal/query"
 	"github.com/hnlbs/amber/internal/retention"
-	"github.com/hnlbs/amber/internal/storage"
+	"github.com/hnlbs/amber/internal/runtime"
 )
 
 func main() {
@@ -52,86 +46,44 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	rotationPolicy := storage.RotationPolicy{
-		MaxRecords: cfg.Storage.SegmentMaxRecords,
-		MaxBytes:   cfg.Storage.SegmentMaxBytes,
-	}
-
-	logDir := filepath.Join(cfg.Storage.DataDir, "logs")
-	spanDir := filepath.Join(cfg.Storage.DataDir, "spans")
-
-	logManager, err := storage.OpenSegmentManager(logDir, rotationPolicy)
-	if err != nil {
-		return fmt.Errorf("failed to open log segment manager: %w", err)
-	}
-	defer func() { _ = logManager.Close() }()
-
-	spanManager, err := storage.OpenSegmentManager(spanDir, rotationPolicy)
-	if err != nil {
-		return fmt.Errorf("failed to open span segment manager: %w", err)
-	}
-	defer func() { _ = spanManager.Close() }()
-
-	log.Info("storage opened")
-
-	logSparse, err := index.LoadSparseIndex(logDir)
-	if err != nil {
-		return fmt.Errorf("failed to load log sparse index: %w", err)
-	}
-
-	spanSparse, err := index.LoadSparseIndex(spanDir)
-	if err != nil {
-		return fmt.Errorf("failed to load span sparse index: %w", err)
-	}
-
-	exec := query.NewExecutorWithCache(
-		logManager, spanManager, logSparse, spanSparse,
-		logDir, spanDir, cfg.Storage.IndexCacheSize,
-	)
-
-	bootstrap.SetupSealCallbacks(exec, logManager, spanManager, logDir, spanDir, log)
-
-	var ready atomic.Bool
-	go func() {
-		bootstrap.LoadSealedIndexes(exec, logManager, spanManager, logDir, spanDir, log)
-		ready.Store(true)
-		log.Info("sealed indexes loaded")
-	}()
-
-	batcher := ingest.NewBatcher(ingest.Deps{
-		LogManager:  logManager,
-		SpanManager: spanManager,
-		LogSparse:   logSparse,
-		SpanSparse:  spanSparse,
-		Indexer:     exec,
-		Logger:      log,
-	}, ingest.Config{
-		BatchSize:        cfg.Ingest.BatchSize,
-		BatchTimeout:     cfg.Ingest.BatchTimeout,
-		QueueSize:        cfg.Ingest.QueueSize,
-		BreakerThreshold: cfg.Ingest.BreakerThreshold,
+	stack, err := runtime.New(ctx, runtime.Options{
+		DataDir:        cfg.Storage.DataDir,
+		Logger:         log,
+		IndexCacheSize: cfg.Storage.IndexCacheSize,
+		Storage: runtime.StorageOptions{
+			SegmentMaxRecords: cfg.Storage.SegmentMaxRecords,
+			SegmentMaxBytes:   cfg.Storage.SegmentMaxBytes,
+		},
+		Ingest: runtime.IngestOptions{
+			BatchSize:        cfg.Ingest.BatchSize,
+			BatchTimeout:     cfg.Ingest.BatchTimeout,
+			QueueSize:        cfg.Ingest.QueueSize,
+			BreakerThreshold: cfg.Ingest.BreakerThreshold,
+		},
+		Cardinality: runtime.CardinalityOptions{
+			MaxAttrsPerEntry:      cfg.Ingest.MaxAttrsPerEntry,
+			MaxAttrValueBytes:     cfg.Ingest.MaxAttrValueBytes,
+			MaxAttrKeysPerService: cfg.Ingest.MaxAttrKeysPerService,
+		},
 	})
-	batcher.SetCardinalityGuard(ingest.NewCardinalityGuard(
-		cfg.Ingest.MaxAttrsPerEntry,
-		cfg.Ingest.MaxAttrValueBytes,
-		cfg.Ingest.MaxAttrKeysPerService,
-	))
-	batcher.Start(ctx)
+	if err != nil {
+		return err
+	}
 
 	metrics.RegisterGaugeFunc("amber_ingest_queue_length", "Items currently buffered in the ingest queue.", func() float64 {
-		return float64(batcher.QueueLen())
+		return float64(stack.Batcher.QueueLen())
 	})
 	metrics.RegisterGaugeFunc("amber_ingest_breaker_open", "1 if the ingest circuit breaker is currently open.", func() float64 {
-		if batcher.IsBreakerOpen() {
+		if stack.Batcher.IsBreakerOpen() {
 			return 1
 		}
 		return 0
 	})
 	metrics.RegisterGaugeFunc("amber_segments_total", "Number of segments tracked by a manager.", func() float64 {
-		return float64(logManager.SegmentCount() + spanManager.SegmentCount())
+		return float64(stack.LogManager.SegmentCount() + stack.SpanManager.SegmentCount())
 	})
 	metrics.RegisterCounterFunc("amber_wal_corrupt_records_total", "Malformed WAL records observed during replay.", func() float64 {
-		return float64(logManager.WALCorruptRecords() + spanManager.WALCorruptRecords())
+		return float64(stack.LogManager.WALCorruptRecords() + stack.SpanManager.WALCorruptRecords())
 	})
 
 	if cfg.Retention.MaxAge > 0 || cfg.Retention.MaxBytes > 0 || cfg.Retention.MaxSegments > 0 {
@@ -144,17 +96,17 @@ func run() error {
 		if interval == 0 {
 			interval = time.Hour
 		}
-		logCleaner := retention.NewCleaner(logManager, logSparse, policy, logDir, log)
-		spanCleaner := retention.NewCleaner(spanManager, spanSparse, policy, spanDir, log)
-		logCleaner.SetOnDelete(exec.InvalidateLogSegment)
-		spanCleaner.SetOnDelete(exec.InvalidateSpanSegment)
+		logCleaner := retention.NewCleaner(stack.LogManager, stack.LogSparse, policy, stack.LogDir, log)
+		spanCleaner := retention.NewCleaner(stack.SpanManager, stack.SpanSparse, policy, stack.SpanDir, log)
+		logCleaner.SetOnDelete(stack.Executor.InvalidateLogSegment)
+		spanCleaner.SetOnDelete(stack.Executor.InvalidateSpanSegment)
 		go logCleaner.StartLoop(interval, ctx.Done())
 		go spanCleaner.StartLoop(interval, ctx.Done())
 		log.Info("retention enabled", "max_age", cfg.Retention.MaxAge, "max_bytes", cfg.Retention.MaxBytes, "interval", interval)
 	}
 
 	if cfg.API.GRPCAddr != "" {
-		grpcServer := ambergrpc.NewServer(batcher, int(cfg.API.MaxRequestBytes), log)
+		grpcServer := ambergrpc.NewServer(stack.Batcher, int(cfg.API.MaxRequestBytes), log)
 		go func() {
 			log.Info("grpc server listening", "addr", cfg.API.GRPCAddr)
 			if err := ambergrpc.ListenAndServe(grpcServer, cfg.API.GRPCAddr); err != nil {
@@ -200,11 +152,11 @@ func run() error {
 	mux := http.NewServeMux()
 	mux.Handle("GET /metrics", metrics.Handler())
 	amberhttp.RegisterRoutes(mux, amberhttp.RoutesDeps{
-		Batcher:    batcher,
-		Executor:   exec,
-		LogManager: logManager,
-		LogSparse:  logSparse,
-		Ready:      &ready,
+		Batcher:    stack.Batcher,
+		Executor:   stack.Executor,
+		LogManager: stack.LogManager,
+		LogSparse:  stack.LogSparse,
+		Ready:      stack.Ready,
 		Logger:     log,
 	}, amberhttp.RoutesConfig{
 		APIKey:          cfg.API.APIKey,
@@ -242,20 +194,15 @@ func run() error {
 	}
 	done := make(chan struct{})
 	go func() {
-		batcher.Wait()
+		if err := stack.Close(); err != nil {
+			log.Error("stack close error", "err", err)
+		}
 		close(done)
 	}()
 	select {
 	case <-done:
 	case <-time.After(batcherTimeout):
 		log.Error("batcher shutdown timed out, abandoning in-flight items", "timeout", batcherTimeout)
-	}
-
-	if err := logSparse.Save(logDir); err != nil {
-		log.Error("failed to save log sparse index", "err", err)
-	}
-	if err := spanSparse.Save(spanDir); err != nil {
-		log.Error("failed to save span sparse index", "err", err)
 	}
 
 	log.Info("amber stopped")
