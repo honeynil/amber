@@ -1,3 +1,5 @@
+// Package storage owns segment files, the WAL, and the durability protocol
+// (write -> WAL append -> segment write -> periodic checkpoint -> WAL truncate).
 package storage
 
 import (

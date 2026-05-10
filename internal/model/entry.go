@@ -1,3 +1,4 @@
+// Package model defines the on-wire and on-disk shapes for log and span entries.
 package model
 
 import (

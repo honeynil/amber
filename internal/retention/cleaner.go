@@ -1,3 +1,5 @@
+// Package retention enforces age, byte-size, and segment-count limits on
+// sealed segments by deleting oldest first.
 package retention
 
 import (

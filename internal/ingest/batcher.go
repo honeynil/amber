@@ -1,3 +1,5 @@
+// Package ingest accepts entries, batches them, and writes through to storage,
+// applying cardinality and circuit-breaker policies on the hot path.
 package ingest
 
 import (

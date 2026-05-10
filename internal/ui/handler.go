@@ -1,3 +1,4 @@
+// Package ui serves the embedded Svelte SPA built from /ui.
 package ui
 
 import (

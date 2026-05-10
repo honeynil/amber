@@ -1,3 +1,4 @@
+// Package grpc serves the OTLP gRPC ingestion endpoints.
 package grpc
 
 import (

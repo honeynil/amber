@@ -1,3 +1,5 @@
+// Package query plans and executes log and span queries against sealed and
+// active segments, using bitmap, FTS, and ribbon-filter indexes.
 package query
 
 import (

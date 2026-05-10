@@ -1,3 +1,4 @@
+// Package http serves the JSON, OTLP HTTP, and admin endpoints.
 package http
 
 import (

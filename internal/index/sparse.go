@@ -1,3 +1,5 @@
+// Package index implements the sparse, bitmap, FTS, and ribbon-filter indexes
+// that accelerate query planning and execution.
 package index
 
 import (
