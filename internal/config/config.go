@@ -37,11 +37,14 @@ type StorageConfig struct {
 }
 
 type IngestConfig struct {
-	BatchSize        int           `yaml:"batch_size"`
-	BatchTimeout     time.Duration `yaml:"batch_timeout"`
-	QueueSize        int           `yaml:"queue_size"`
-	ShutdownTimeout  time.Duration `yaml:"shutdown_timeout"`
-	BreakerThreshold int           `yaml:"breaker_threshold"`
+	BatchSize             int           `yaml:"batch_size"`
+	BatchTimeout          time.Duration `yaml:"batch_timeout"`
+	QueueSize             int           `yaml:"queue_size"`
+	ShutdownTimeout       time.Duration `yaml:"shutdown_timeout"`
+	BreakerThreshold      int           `yaml:"breaker_threshold"`
+	MaxAttrsPerEntry      int           `yaml:"max_attrs_per_entry"`
+	MaxAttrValueBytes     int           `yaml:"max_attr_value_bytes"`
+	MaxAttrKeysPerService int           `yaml:"max_attr_keys_per_service"`
 }
 
 type APIConfig struct {
@@ -68,11 +71,14 @@ func Default() *Config {
 			SegmentMaxBytes:   512 << 20,
 		},
 		Ingest: IngestConfig{
-			BatchSize:        1000,
-			BatchTimeout:     100 * time.Millisecond,
-			QueueSize:        100_000,
-			ShutdownTimeout:  30 * time.Second,
-			BreakerThreshold: 10,
+			BatchSize:             1000,
+			BatchTimeout:          100 * time.Millisecond,
+			QueueSize:             100_000,
+			ShutdownTimeout:       30 * time.Second,
+			BreakerThreshold:      10,
+			MaxAttrsPerEntry:      64,
+			MaxAttrValueBytes:     4096,
+			MaxAttrKeysPerService: 1024,
 		},
 		API: APIConfig{
 			HTTPAddr:          ":8080",
