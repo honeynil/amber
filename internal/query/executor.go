@@ -379,6 +379,14 @@ func (e *Executor) InvalidateLogSegment(seg storage.SegmentMeta) {
 	e.resultCache.clear()
 }
 
+// ClearResultCache drops every cached LogResult/SpanResult. Used by
+// benchmarks that need to measure cold execution and by future admin
+// endpoints that flush cache after schema-affecting changes. Same
+// underlying call as the side-effect in InvalidateLogSegment.
+func (e *Executor) ClearResultCache() {
+	e.resultCache.clear()
+}
+
 func (e *Executor) InvalidateSpanSegment(seg storage.SegmentMeta) {
 	if e.spanReaders != nil {
 		e.spanReaders.invalidate(e.spanManager.SegmentPath(seg))
