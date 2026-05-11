@@ -231,6 +231,7 @@ func benchQueryFullScanBatched(b *testing.B, n int) {
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
+		exec.ClearResultCache()
 		if _, err := exec.ExecLog(ctx, q); err != nil {
 			b.Fatalf("ExecLog: %v", err)
 		}
@@ -256,6 +257,7 @@ func benchQueryServiceFilterBatched(b *testing.B, n int) {
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
+		exec.ClearResultCache()
 		if _, err := exec.ExecLog(ctx, q); err != nil {
 			b.Fatalf("ExecLog: %v", err)
 		}
@@ -282,6 +284,7 @@ func benchQueryFullScan(b *testing.B, n int) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
+		exec.ClearResultCache()
 		result, err := exec.ExecLog(ctx, q)
 		if err != nil {
 			b.Fatalf("ExecLog: %v", err)
@@ -307,6 +310,7 @@ func BenchmarkQuery_TimeRange_1k(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
+		exec.ClearResultCache()
 		result, err := exec.ExecLog(ctx, q)
 		if err != nil {
 			b.Fatalf("ExecLog: %v", err)
@@ -331,6 +335,7 @@ func BenchmarkQuery_ServiceFilter_Bitmap_1k(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
+		exec.ClearResultCache()
 		result, err := exec.ExecLog(ctx, q)
 		if err != nil {
 			b.Fatalf("ExecLog: %v", err)
@@ -358,6 +363,7 @@ func BenchmarkQuery_LevelFilter_Bitmap_1k(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
+		exec.ClearResultCache()
 		result, err := exec.ExecLog(ctx, q)
 		if err != nil {
 			b.Fatalf("ExecLog: %v", err)
@@ -386,6 +392,7 @@ func BenchmarkQuery_ServiceAndLevel_Bitmap_1k(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
+		exec.ClearResultCache()
 		result, err := exec.ExecLog(ctx, q)
 		if err != nil {
 			b.Fatalf("ExecLog: %v", err)
@@ -410,6 +417,7 @@ func BenchmarkQuery_ServiceFilter_PostFilter_1k(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
+		exec.ClearResultCache()
 		result, err := exec.ExecLog(ctx, q)
 		if err != nil {
 			b.Fatalf("ExecLog: %v", err)
@@ -437,6 +445,7 @@ func BenchmarkQuery_LevelFilter_PostFilter_1k(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
+		exec.ClearResultCache()
 		result, err := exec.ExecLog(ctx, q)
 		if err != nil {
 			b.Fatalf("ExecLog: %v", err)
