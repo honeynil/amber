@@ -52,16 +52,16 @@ type CardinalityOptions struct {
 // Operators with very different workloads should override explicitly; the
 // numbers are starting points, not optima.
 const (
-	// 1M records per segment ≈ ~10-30 min of typical app logs at 1k/s. Keeps
-	// per-segment index build time under a few seconds and cuts compaction
-	// blast radius if a single segment goes bad.
-	defaultSegmentMaxRecords uint64 = 1_000_000
+	// 100k records ≈ ~1 MiB compressed per segment (~100s at 1k/s).
+	// Heap-threshold pruning skips all but 1-2 segments per query, keeping
+	// R p50 in the 50-100ms range. At 1M/seg every query scans the full
+	// segment and p50 balloons to 500ms regardless of index quality.
+	defaultSegmentMaxRecords uint64 = 100_000
 
-	// 512 MiB per segment is a balance between (a) S3 multipart upload
-	// efficiency (we're well above the 5 MiB minimum and below the cost
-	// cliff at 5 GiB) and (b) wall-clock time to scan one segment for a
-	// query that misses the index.
-	defaultSegmentMaxBytes int64 = 512 << 20
+	// 128 MiB: above S3 multipart minimum (5 MiB), safely below the 5 GiB
+	// cliff, and sized so a single segment at ~1 MiB compressed hits the
+	// record limit long before the byte limit under normal workloads.
+	defaultSegmentMaxBytes int64 = 128 << 20
 
 	// Batch of 1000 amortizes WAL/segment write syscalls and zstd block
 	// framing without making any single batch large enough to stall ingest

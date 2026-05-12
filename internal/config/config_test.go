@@ -13,8 +13,8 @@ func TestDefault(t *testing.T) {
 	if cfg.Storage.DataDir != "./data" {
 		t.Errorf("DataDir: got %q, want ./data", cfg.Storage.DataDir)
 	}
-	if cfg.Storage.SegmentMaxRecords != 1_000_000 {
-		t.Errorf("SegmentMaxRecords: got %d, want 1000000", cfg.Storage.SegmentMaxRecords)
+	if cfg.Storage.SegmentMaxRecords != 100_000 {
+		t.Errorf("SegmentMaxRecords: got %d, want 100000", cfg.Storage.SegmentMaxRecords)
 	}
 	if cfg.Ingest.BatchSize != 1000 {
 		t.Errorf("BatchSize: got %d, want 1000", cfg.Ingest.BatchSize)

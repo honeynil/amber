@@ -18,8 +18,8 @@ type RotationPolicy struct {
 }
 
 var DefaultRotationPolicy = RotationPolicy{
-	MaxRecords: 1_000_000,
-	MaxBytes:   512 << 20,
+	MaxRecords: 100_000,
+	MaxBytes:   128 << 20,
 }
 
 type SegmentManager struct {
