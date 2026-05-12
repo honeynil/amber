@@ -48,6 +48,7 @@ var (
 	flagKeep        = flag.Bool("keep", false, "do not delete tmpdir at exit")
 	flagRestart     = flag.Bool("restart", false, "close+reopen engine before M/R phases; reports cold-start RSS instead of post-ingest RSS")
 	flagWarmupIters = flag.Int("warmup-iters", 5, "dry-run query iterations before timing; primes segment reader handles and settles GC")
+	flagMaxRecords  = flag.Uint64("max-records", 0, "segment rotation threshold in records (0 = runtime default 100k)")
 )
 
 const (
@@ -98,8 +99,9 @@ func main() {
 	}
 
 	report := &reporter{w: out}
-	report.printf("loadbench: n=%d batch=%d queue=%d services=%d hosts=%d seed=%d restart=%v warmup=%d\n",
-		*flagN, *flagBatch, *flagQueue, *flagServices, *flagHosts, *flagSeed, *flagRestart, *flagWarmupIters)
+	maxRec := *flagMaxRecords
+	report.printf("loadbench: n=%d batch=%d queue=%d services=%d hosts=%d seed=%d restart=%v warmup=%d max-records=%d\n",
+		*flagN, *flagBatch, *flagQueue, *flagServices, *flagHosts, *flagSeed, *flagRestart, *flagWarmupIters, maxRec)
 	report.printf("data dir: %s (keep=%v)\n\n", dir, *flagKeep)
 
 	// Logger discards everything except warnings/errors so we don't pollute
@@ -109,6 +111,7 @@ func main() {
 	opts := rt.Options{
 		DataDir: dir,
 		Logger:  logger,
+		Storage: rt.StorageOptions{SegmentMaxRecords: maxRec},
 		Ingest: rt.IngestOptions{
 			BatchSize:    *flagBatch,
 			BatchTimeout: 100 * time.Millisecond,
