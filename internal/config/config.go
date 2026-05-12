@@ -71,12 +71,11 @@ func Default() *Config {
 	return &Config{
 		Storage: StorageConfig{
 			DataDir: "./data",
-			// 1M records ≈ 10–30 min at 1k/s; bounds index build time and
-			// blast radius of a corrupted segment.
-			SegmentMaxRecords: 1_000_000,
-			// 512 MiB: above S3 multipart minimum (5 MiB), well under the
-			// 5 GiB cliff, keeps full-segment scan time tractable.
-			SegmentMaxBytes: 512 << 20,
+			// 100k records ≈ 1 MiB compressed; heap-threshold pruning then
+			// skips all but 1-2 segments per query → p50 stays 50-100ms.
+			SegmentMaxRecords: 100_000,
+			// 128 MiB safety cap; normal workloads hit the record limit first.
+			SegmentMaxBytes: 128 << 20,
 		},
 		Ingest: IngestConfig{
 			// 1000 amortizes WAL/segment syscalls and zstd framing without
