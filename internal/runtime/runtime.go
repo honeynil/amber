@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"sync/atomic"
 	"time"
@@ -33,6 +34,13 @@ type Options struct {
 type StorageOptions struct {
 	SegmentMaxRecords uint64
 	SegmentMaxBytes   int64
+	// S3Bucket enables S3-compatible object storage. When non-empty, sealed
+	// segments and their index sidecars are uploaded to S3 after each seal.
+	// Reads fall back to S3 on a local cache miss.
+	S3Bucket   string
+	S3Prefix   string
+	S3Region   string
+	S3Endpoint string // empty = AWS, non-empty = MinIO/R2/etc.
 }
 
 type IngestOptions struct {
@@ -162,6 +170,39 @@ func New(ctx context.Context, opts Options) (*Stack, error) {
 		logDir, spanDir, cfg.IndexCacheSize,
 	)
 
+	if cfg.Storage.S3Bucket != "" {
+		s3cfg := storage.S3StoreConfig{
+			Bucket:   cfg.Storage.S3Bucket,
+			Prefix:   cfg.Storage.S3Prefix,
+			Region:   cfg.Storage.S3Region,
+			Endpoint: cfg.Storage.S3Endpoint,
+		}
+		logS3, err := storage.NewS3Store(ctx, storage.S3StoreConfig{
+			Bucket: s3cfg.Bucket, Prefix: s3cfg.Prefix,
+			Region: s3cfg.Region, Endpoint: s3cfg.Endpoint,
+			LocalDir: logDir,
+		})
+		if err != nil {
+			_ = logManager.Close()
+			_ = spanManager.Close()
+			return nil, fmt.Errorf("runtime: open log s3 store: %w", err)
+		}
+		spanS3, err := storage.NewS3Store(ctx, storage.S3StoreConfig{
+			Bucket: s3cfg.Bucket, Prefix: s3cfg.Prefix + "/spans",
+			Region: s3cfg.Region, Endpoint: s3cfg.Endpoint,
+			LocalDir: spanDir,
+		})
+		if err != nil {
+			_ = logManager.Close()
+			_ = spanManager.Close()
+			return nil, fmt.Errorf("runtime: open span s3 store: %w", err)
+		}
+		logManager.SetStore(logS3)
+		spanManager.SetStore(spanS3)
+		logManager.SetOnSealComplete(sealUploader(logS3, logDir, cfg.Logger))
+		spanManager.SetOnSealComplete(sealUploader(spanS3, spanDir, cfg.Logger))
+	}
+
 	bootstrap.SetupSealCallbacks(ctx, exec, logManager, spanManager, logDir, spanDir, cfg.Logger)
 
 	ready := &atomic.Bool{}
@@ -252,5 +293,29 @@ func (s *Stack) Close(ctx context.Context) error {
 		return err
 	case <-ctx.Done():
 		return fmt.Errorf("runtime: shutdown: %w", ctx.Err())
+	}
+}
+
+// sealUploader returns an onSealComplete callback that uploads the sealed
+// segment and all its index sidecars from dir to store. Called after index
+// builds finish, so all files are on disk when upload begins.
+func sealUploader(store storage.SegmentStore, dir string, log *slog.Logger) func(storage.SegmentMeta) {
+	sidecars := []string{"", ".bidx", ".fidx", ".filt", ".fts.filt"}
+	return func(meta storage.SegmentMeta) {
+		for _, ext := range sidecars {
+			name := meta.FileName + ext
+			path := filepath.Join(dir, name)
+			f, err := os.Open(path)
+			if err != nil {
+				if !os.IsNotExist(err) {
+					log.Warn("s3 upload: open local file", "file", name, "err", err)
+				}
+				continue
+			}
+			if err := store.Put(name, f); err != nil {
+				log.Warn("s3 upload: put", "file", name, "err", err)
+			}
+			_ = f.Close()
+		}
 	}
 }
