@@ -4,7 +4,6 @@ package retention
 
 import (
 	"log/slog"
-	"os"
 	"sort"
 	"time"
 
@@ -117,17 +116,11 @@ func (c *Cleaner) selectForDeletion(segments []storage.SegmentMeta) []storage.Se
 }
 
 func (c *Cleaner) deleteSegment(seg storage.SegmentMeta) error {
-	segPath := c.manager.SegmentPath(seg)
-
-	if err := os.Remove(segPath); err != nil && !os.IsNotExist(err) {
+	if err := c.manager.RemoveSegment(seg.ID); err != nil {
 		return err
 	}
 
-	_ = os.Remove(segPath + ".bidx")
-	_ = os.Remove(segPath + ".fidx")
-	_ = os.Remove(segPath + ".filt")
-
-	if err := c.manager.RemoveSegment(seg.ID); err != nil {
+	if err := c.manager.DeleteSegmentFiles(seg); err != nil {
 		return err
 	}
 

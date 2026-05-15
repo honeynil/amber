@@ -31,6 +31,16 @@ type SegmentManager struct {
 	active     *SegmentWriter
 	activeSize int64
 	onSeal     func(meta SegmentMeta)
+	store      SegmentStore
+}
+
+// SetStore replaces the SegmentStore used for sealed segment persistence.
+// The default is LocalStore (files remain in the data directory). Call before
+// any segments are sealed if using a remote store.
+func (sm *SegmentManager) SetStore(s SegmentStore) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.store = s
 }
 
 func (sm *SegmentManager) SetOnSeal(fn func(meta SegmentMeta)) {
@@ -60,6 +70,7 @@ func OpenSegmentManager(dir string, policy RotationPolicy) (*SegmentManager, err
 		wal:    wal,
 		policy: policy,
 		meta:   meta,
+		store:  NewLocalStore(dir),
 	}
 
 	if err := sm.replayWAL(); err != nil {
@@ -488,6 +499,20 @@ func (sm *SegmentManager) ActiveSegmentMeta() (SegmentMeta, bool) {
 
 func (sm *SegmentManager) SegmentPath(meta SegmentMeta) string {
 	return filepath.Join(sm.dir, meta.FileName)
+}
+
+// DeleteSegmentFiles removes the segment data file and all known index
+// sidecars from the store. Missing files are silently ignored.
+// Call after RemoveSegment to clean up persistent state.
+func (sm *SegmentManager) DeleteSegmentFiles(meta SegmentMeta) error {
+	sidecars := []string{"", ".bidx", ".fidx", ".filt", ".fts.filt"}
+	var first error
+	for _, ext := range sidecars {
+		if err := sm.store.Delete(meta.FileName + ext); err != nil && first == nil {
+			first = err
+		}
+	}
+	return first
 }
 
 func (sm *SegmentManager) Close() error {
