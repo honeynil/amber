@@ -30,11 +30,19 @@ type RetentionConfig struct {
 	Interval    time.Duration `yaml:"interval"`
 }
 
+type S3Config struct {
+	Bucket   string `yaml:"bucket"`
+	Prefix   string `yaml:"prefix"`
+	Region   string `yaml:"region"`
+	Endpoint string `yaml:"endpoint"` // custom endpoint for MinIO/R2/etc.
+}
+
 type StorageConfig struct {
-	DataDir           string `yaml:"data_dir"`
-	SegmentMaxRecords uint64 `yaml:"segment_max_records"`
-	SegmentMaxBytes   int64  `yaml:"segment_max_bytes"`
-	IndexCacheSize    int    `yaml:"index_cache_size"`
+	DataDir           string   `yaml:"data_dir"`
+	SegmentMaxRecords uint64   `yaml:"segment_max_records"`
+	SegmentMaxBytes   int64    `yaml:"segment_max_bytes"`
+	IndexCacheSize    int      `yaml:"index_cache_size"`
+	S3                S3Config `yaml:"s3"`
 }
 
 type IngestConfig struct {

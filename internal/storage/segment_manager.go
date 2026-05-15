@@ -23,15 +23,16 @@ var DefaultRotationPolicy = RotationPolicy{
 }
 
 type SegmentManager struct {
-	mu         sync.RWMutex
-	dir        string
-	wal        *WAL
-	policy     RotationPolicy
-	meta       *StoreMeta
-	active     *SegmentWriter
-	activeSize int64
-	onSeal     func(meta SegmentMeta)
-	store      SegmentStore
+	mu             sync.RWMutex
+	dir            string
+	wal            *WAL
+	policy         RotationPolicy
+	meta           *StoreMeta
+	active         *SegmentWriter
+	activeSize     int64
+	onSeal         func(meta SegmentMeta)
+	onSealComplete func(meta SegmentMeta)
+	store          SegmentStore
 }
 
 // SetStore replaces the SegmentStore used for sealed segment persistence.
@@ -41,6 +42,15 @@ func (sm *SegmentManager) SetStore(s SegmentStore) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	sm.store = s
+}
+
+// SetOnSealComplete registers a callback fired after onSeal (and all index
+// builds it triggers) finishes. Use this to upload sealed files to a remote
+// store: by the time it is called, all sidecars are on local disk.
+func (sm *SegmentManager) SetOnSealComplete(fn func(meta SegmentMeta)) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.onSealComplete = fn
 }
 
 func (sm *SegmentManager) SetOnSeal(fn func(meta SegmentMeta)) {
@@ -379,8 +389,17 @@ func (sm *SegmentManager) rotate() error {
 		return err
 	}
 
-	if sm.onSeal != nil {
-		go sm.onSeal(sealedMeta)
+	if sm.onSeal != nil || sm.onSealComplete != nil {
+		onSeal := sm.onSeal
+		onSealComplete := sm.onSealComplete
+		go func() {
+			if onSeal != nil {
+				onSeal(sealedMeta)
+			}
+			if onSealComplete != nil {
+				onSealComplete(sealedMeta)
+			}
+		}()
 	}
 
 	if err := sm.createNewSegment(); err != nil {
